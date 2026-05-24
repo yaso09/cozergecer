@@ -83,7 +83,7 @@ async function callMistralText(messages) {
 async function askTextAI(messages) {
   try {
     console.log("-> Deneniyor: Qwen/qwen3-32b...");
-    return await callGroq(messages, "qwen/qwen3-32b");
+    return await callGroq(messages, "llama-3.3-70b-versatile");
   } catch (err) {
     if (err.message.includes("LIMIT_REACHED")) {
       try {
