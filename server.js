@@ -20,18 +20,16 @@ if (!GROQ_KEY || !MISTRAL_KEY) {
 // ── Rate Limiting (API Koruma) ───────────────────────────────────────────────
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 100, // Test aşamasında limiti biraz artırdık
+  max: 100,
   message: { ok: false, error: "Çok fazla istek gönderildi, lütfen biraz bekleyin." }
 });
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
-// API rotalarına rate limit uygula
 app.use('/api/', limiter);
-// Statik dosyaları (index.html vb.) servis et
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── AI Helpers (Fallback Mekanizması) ────────────────────────────────────────
+// ── AI Helpers (Kademeli Yedekleme / Fallback) ───────────────────────────────
 
 async function callGroq(messages, modelName) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -50,6 +48,7 @@ async function callGroq(messages, modelName) {
 
   const d = await res.json();
   if (!res.ok) {
+    // Rate limit veya Kota hatası kontrolü
     if (res.status === 429 || (d.error && d.error.type?.includes('quota'))) {
        throw new Error(`LIMIT_REACHED: ${modelName}`);
     }
@@ -57,7 +56,7 @@ async function callGroq(messages, modelName) {
   }
 
   let content = d.choices[0].message.content;
-  // Qwen <think> etiketlerini temizle
+  // Qwen yedek olarak devreye girerse <think> bloklarını temizlemek için:
   return content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 }
 
@@ -79,18 +78,18 @@ async function callMistralText(messages) {
   return d.choices[0].message.content.trim();
 }
 
-// Ana Metin İşleme (Qwen -> Llama -> Mistral)
+// Ana Metin İşleme (Llama 3.3 -> Qwen -> Mistral)
 async function askTextAI(messages) {
   try {
-    console.log("-> Deneniyor: Qwen/qwen3-32b...");
+    console.log("-> Deneniyor: Llama 3.3 70B...");
     return await callGroq(messages, "llama-3.3-70b-versatile");
   } catch (err) {
     if (err.message.includes("LIMIT_REACHED")) {
       try {
-        console.warn("-> Qwen limiti doldu. Deneniyor: Llama 3.3...");
-        return await callGroq(messages, "llama-3.3-70b-versatile");
+        console.warn("-> Llama limiti doldu. Deneniyor: Qwen 32B...");
+        return await callGroq(messages, "qwen-2.5-32b");
       } catch (err2) {
-        console.error("-> Groq tamamen doldu. Deneniyor: Mistral Large...");
+        console.error("-> Groq limitleri tükendi. Deneniyor: Mistral Large...");
         return await callMistralText(messages);
       }
     }
@@ -113,7 +112,7 @@ async function askMistralVision(imageB64, imageMime) {
         role: 'user',
         content: [
           { type: 'image_url', image_url: { url: dataUrl } },
-          { type: 'text', text: "Bu görseldeki soruyu/metni oku. Matematiksel ifadeleri LaTeX ($...$) formatında yaz. Başka hiçbir şey ekleme." }
+          { type: 'text', text: "Bu görseldeki soruyu/metni oku. Matematiksel ifadeleri LaTeX ($...$) olarak yaz. Başka hiçbir açıklama ekleme." }
         ],
       }],
       max_tokens: 1024,
@@ -136,13 +135,13 @@ function wrap(fn) {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
-// [ÖNEMLİ] Health Check Rotaları
+// Health Check
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
     status: "online",
-    engine: "Hybrid (Qwen/Llama/Mistral)",
-    vision: "Pixtral",
+    primary_model: "Llama 3.3 70B",
+    vision: "Pixtral 12B",
     wolfram: !!WOLFRAM_ID
   });
 });
@@ -158,7 +157,7 @@ app.post('/api/read-image', wrap(async (req, res) => {
 // Sınıflandırma
 app.post('/api/classify', wrap(async (req, res) => {
   const { question } = req.body;
-  const prompt = `Analiz et ve sadece saf JSON döndür. Markdown kullanma.\nSoru: "${question}"\n{"isMath":true/false, "wolframQuery":"ingilizce matematik sorgusu", "type":"ders"}`;
+  const prompt = `Analiz et ve sadece saf JSON döndür. Markdown etiketleri kullanma.\nSoru: "${question}"\n{"isMath":true/false, "wolframQuery":"ingilizce matematik sorgusu", "type":"ders"}`;
   const raw = await askTextAI([{ role: 'user', content: prompt }]);
   const cleanJson = raw.replace(/```json|```/g, "").trim();
   res.json({ ok: true, ...JSON.parse(cleanJson) });
@@ -202,7 +201,8 @@ app.listen(PORT, () => {
   console.log(`\n  🚀 ÇözerGeçer Sunucusu Hazır`);
   console.log(`  ➜ Adres    : http://localhost:${PORT}`);
   console.log(`  ➜ Health   : http://localhost:${PORT}/api/health`);
+  console.log(`  ➜ Ana Zeka : Llama 3.3 70B (Groq)`);
+  console.log(`  ➜ Fallback : Qwen 32B & Mistral Large`);
   console.log(`  ➜ Vizyon   : Pixtral (Mistral)`);
-  console.log(`  ➜ Zeka     : Qwen/Llama/Mistral (Kademeli Fallback)`);
   console.log(`  ➜ Durum    : ÇALIŞIYOR\n`);
 });
