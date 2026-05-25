@@ -1089,14 +1089,16 @@ async function startSolving() {
     setStep(2, 'done', (cls.isMath ? 'Matematik — ' : 'Genel — ') + (typeMap[cls.type] || cls.type));
 
     // Step 3 — Çözüm
-    let rawAns = '', usedWolfram = false;
+    let rawAns = '', usedWolfram = false, wolframPod = 'Result';
     if (cls.isMath) {
       setStep(3, 'processing', 'Matematik motoru devreye giriyor…');
       if (cls.wolframQuery) {
         try {
           const wr = await apiGet('/api/wolfram?q=' + encodeURIComponent(cls.wolframQuery));
+          if (!wr.ok) throw new Error(wr.error || 'Wolfram başarısız');
           rawAns = wr.result; usedWolfram = true;
-          setStep(3, 'done', 'Hesaplandı: ' + rawAns.slice(0, 45));
+          wolframPod = wr.pod || 'Result';
+          setStep(3, 'done', 'Hesaplandı ✓');
         } catch {
           setStep(3, 'processing', 'Yedek motor devreye giriyor…');
           rawAns = (await apiPost('/api/solve', { question, isMath: true })).answer;
@@ -1136,7 +1138,25 @@ async function startSolving() {
     const wb = document.getElementById('wolframBox');
     const wc = document.getElementById('wolframChip');
     if (usedWolfram) {
-      wb.textContent = 'Sonuç: ' + rawAns;
+      // Wolfram sonucu: etiket + sonucu KaTeX ile render et
+      wb.innerHTML = '';
+      const label = document.createElement('span');
+      label.style.cssText = 'font-size:.7rem;font-weight:600;letter-spacing:.07em;opacity:.7;display:block;margin-bottom:.3rem;text-transform:uppercase;';
+      label.textContent = 'Wolfram — ' + wolframPod;
+      const value = document.createElement('div');
+      value.style.cssText = 'font-size:1.25rem;font-weight:800;';
+      // Wolfram düz metin döndürür; $...$ yoksa kendimiz sararız
+      const ansStr = String(rawAns).trim();
+      value.textContent = ansStr;
+      wb.appendChild(label);
+      wb.appendChild(value);
+      renderMathInElement(value, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true  },
+          { left: '$',  right: '$',  display: false },
+        ],
+        throwOnError: false
+      });
       wb.style.display = 'block'; wc.style.display = 'inline';
     } else {
       wb.style.display = 'none'; wc.style.display = 'none';

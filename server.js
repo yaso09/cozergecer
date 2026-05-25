@@ -323,10 +323,43 @@ app.post('/api/explain', wrap(async (req, res) => {
 app.get('/api/wolfram', wrap(async (req, res) => {
   const q = req.query.q;
   if (!q) return res.status(400).json({ ok: false, error: 'Sorgu eksik.' });
-  const url  = `https://api.wolframalpha.com/v1/result?appid=${WOLFRAM_ID}&i=${encodeURIComponent(q)}`;
-  const r    = await fetch(url);
-  const text = await r.text();
-  res.json({ ok: true, result: text });
+
+  // /v2/query — tam sonuç API'si; Result pod'unu önce dener,
+  // bulamazsa DecimalApproximation veya ilk sayısal pod'u alır.
+  const url = `https://api.wolframalpha.com/v2/query?appid=${WOLFRAM_ID}` +
+              `&input=${encodeURIComponent(q)}&output=json&format=plaintext` +
+              `&units=metric&podstate=Result__Step-by-step+solution`;
+
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Wolfram HTTP ${r.status}`);
+  const data = await r.json();
+
+  const pods = data?.queryresult?.pods ?? [];
+  if (!pods.length || data.queryresult.success === false) {
+    return res.status(422).json({ ok: false, error: 'Wolfram bu sorguyu anlayamadı.' });
+  }
+
+  // Tercih sırası: Result > Simplification > DecimalApproximation > ilk pod
+  const PREFERRED = ['Result', 'Simplification', 'Value', 'DecimalApproximation'];
+  let chosen = null;
+  for (const title of PREFERRED) {
+    chosen = pods.find(p => p.title === title || p.id === title.toLowerCase());
+    if (chosen) break;
+  }
+  if (!chosen) chosen = pods[0]; // en azından bir şey göster
+
+  // Subpod'lardan düz metni topla
+  const lines = (chosen.subpods ?? [])
+    .map(s => s.plaintext?.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return res.status(422).json({ ok: false, error: 'Wolfram sonuç metni boş.' });
+  }
+
+  const result = lines.join('  |  ');
+  console.log(`  [Wolfram] pod="${chosen.title}" → ${result}`);
+  res.json({ ok: true, result, pod: chosen.title });
 }));
 
 // ── Init & Start ──────────────────────────────────────────────────────────────
