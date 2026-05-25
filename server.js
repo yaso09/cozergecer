@@ -260,6 +260,12 @@ app.post('/api/read-image', wrap(async (req, res) => {
 app.post('/api/classify', wrap(async (req, res) => {
   const { question } = req.body;
 
+  // Kontrol karakterlerini temizle: \n \r \t vb. prompt içinde JSON'u bozar
+  const safeQuestion = question
+    .replace(/[\r\n\t]+/g, ' ')  // satır sonu / sekme → boşluk
+    .replace(/"/g, "'")           // çift tırnak → tek tırnak (prompt'u kırmaz)
+    .trim();
+
   const system =
     "Sen bir JSON API'sın. Yalnızca ham JSON nesnesi döndür. " +
     'Markdown, kod bloğu (```), açıklama veya başka HİÇBİR şey yazma.';
@@ -267,7 +273,7 @@ app.post('/api/classify', wrap(async (req, res) => {
   const prompt =
     `Aşağıdaki soruyu analiz et ve SADECE şu şemaya uygun bir JSON nesnesi döndür:\n` +
     `{"isMath":true,"wolframQuery":"ingilizce wolfram sorgusu veya boş string","type":"algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|biology|history|literature|general"}\n\n` +
-    `Soru: "${question}"`;
+    `Soru: "${safeQuestion}"`;
 
   const raw = await askWithFallback([
     { role: 'system', content: system },
@@ -281,7 +287,10 @@ app.post('/api/classify', wrap(async (req, res) => {
     throw new Error('Model geçerli JSON döndürmedi.');
   }
 
-  const parsed = JSON.parse(match[0]);
+  // Model yanıtındaki kontrol karakterlerini temizle (JSON.parse bunlara tahammül etmez)
+  const cleanJson = match[0].replace(/[\x00-\x1F\x7F]/g, ' ');
+
+  const parsed = JSON.parse(cleanJson);
   res.json({ ok: true, ...parsed });
 }));
 
