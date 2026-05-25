@@ -1094,7 +1094,7 @@ async function startSolving() {
       setStep(3, 'processing', 'Matematik motoru devreye giriyor…');
       if (cls.wolframQuery) {
         try {
-          const wr = await apiGet('/api/wolfram?q=' + encodeURIComponent(cls.wolframQuery));
+          const wr = await apiPost('/api/wolfram', { q: cls.wolframQuery });
           if (!wr.ok) throw new Error(wr.error || 'Wolfram başarısız');
           rawAns = wr.result; usedWolfram = true;
           wolframPod = wr.pod || 'Result';
@@ -1125,8 +1125,9 @@ async function startSolving() {
     rQEl.textContent = question; // önce textContent ile HTML injection'ı engelle
     renderMathInElement(rQEl, {
       delimiters: [
-        { left: '$$', right: '$$', display: true  },
-        { left: '$',  right: '$',  display: false },
+        { left: '$$',   right: '$$',   display: true  },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true  },
       ],
       throwOnError: false
     });
@@ -1152,9 +1153,10 @@ async function startSolving() {
       wb.appendChild(value);
       renderMathInElement(value, {
         delimiters: [
-          { left: '$$', right: '$$', display: true  },
-          { left: '$',  right: '$',  display: false },
-        ],
+        { left: '$$',   right: '$$',   display: true  },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true  },
+      ],
         throwOnError: false
       });
       wb.style.display = 'block'; wc.style.display = 'inline';
@@ -1167,12 +1169,11 @@ async function startSolving() {
     
     renderMathInElement(explanationEl, {
       delimiters: [
-        {left: '$$', right: '$$', display: true},
-        {left: '$', right: '$', display: false},
-        {left: '\\(', right: '\\)', display: false},
-        {left: '\\[', right: '\\[', display: true}
+        { left: '$$',   right: '$$',   display: true  },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '\\[', right: '\\]', display: true  },
       ],
-      throwOnError : false
+      throwOnError: false
     });
     document.getElementById('resultWrap').classList.add('visible');
     setTimeout(() => {

@@ -181,15 +181,35 @@ async function callMistralVision(imageB64, imageMime) {
           { type: 'image_url', image_url: { url: dataUrl } },
           {
             type: 'text',
-            text:
-              'Görseldeki yazıyı ve matematiksel ifadeleri OLDUĞU GİBİ oku ve yaz. ' +
-              'SADECE metni aktar; soruyu çözme, cevaplamaya çalışma, yorum ekleme. ' +
-              'Satır içi matematik için $...$, blok/display matematik için $$...$$ kullan. ' +
-              'Başka hiçbir şey yazma.'
+            text: [
+              '⚠️ KESİN KURAL: Soruyu ÇÖZME. Cevap VERME. Yorum EKLEME. Adım YAZMA.',
+              'Görevin YALNIZCA görseldeki içeriği olduğu gibi metne dönüştürmektir.',
+              'Tüm matematiksel ifadeler için $$...$$ kullan. $...$, \\(...\\), \\[...\\] YASAK.',
+              '',
+              '## Çıktı sırası — her bölüm görselde varsa yaz, yoksa atla',
+              '',
+              '1. SORU METNİ',
+              '   Görseldeki tüm yazıları (soru kökü, yönergeler, açıklamalar) kelimesi kelimesine aktar.',
+              '   Seçenekler varsa A) B) C) D) E) sırasıyla yaz.',
+              '',
+              '2. ŞEKİL / DİYAGRAM (varsa)',
+              '   "[Şekil: ...]" etiketiyle başla ve şu bilgileri ver:',
+              '   - Şeklin türü (dik üçgen, çember, koordinat ekseni vb.)',
+              '   - Köşe/nokta etiketleri: $$A$$, $$B$$, $$C$$',
+              '   - Kenar uzunlukları: $$AB = 5$$, $$BC = 3$$',
+              '   - Açılar: $$\\angle BAC = 60^\\circ$$, dik açı: $$\\angle B = 90^\\circ$$',
+              '   - Özel elemanlar: $$r = 4$$, $$h = 6$$',
+              '   - Koordinatlar: $$A(2,\\,3)$$',
+              '   - Paralel/eşit işaretler: $$AB \\parallel CD$$, $$AB = CD$$',
+              '   - Vektörler: $$\\vec{AB}$$',
+              '   - Şekil üzerindeki tüm yazı ve sayılar',
+              '',
+              '⚠️ TEKRAR: Çözüm yazma. Cevap verme. Sadece görseldeki bilgiyi aktar.',
+            ].join('\n'),
           }
         ],
       }],
-      max_tokens: 1024,
+      max_tokens: 1536,
     }),
   });
   const d = await res.json();
@@ -201,8 +221,8 @@ async function callMistralVision(imageB64, imageMime) {
 //   En iyi modelden başlar, hata alırsa bir sonrakine geçer.
 
 const LATEX_RULE =
-  'Matematiksel ifadeler için MUTLAKA $...$ (satır içi) veya $$...$$ (blok/display) kullan. ' +
-  '\\(...\\) veya \\[...\\] formatını ASLA kullanma.';
+  'Matematiksel ifadeler için YALNIZCA $$...$$ kullan (hem satır içi hem blok/display). ' +
+  '$...$, \\(...\\) veya \\[...\\] formatlarını ASLA kullanma.';
 
 async function askWithFallback(messages, tier = 'all') {
   const cascade = buildCascade(tier);
@@ -320,8 +340,8 @@ app.post('/api/explain', wrap(async (req, res) => {
 }));
 
 // Wolfram Alpha
-app.get('/api/wolfram', wrap(async (req, res) => {
-  const q = req.query.q;
+app.post('/api/wolfram', wrap(async (req, res) => {
+  const q = req.body.q;
   if (!q) return res.status(400).json({ ok: false, error: 'Sorgu eksik.' });
 
   // /v2/query — tam sonuç API'si; Result pod'unu önce dener,
