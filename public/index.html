@@ -904,7 +904,8 @@ async function checkHealth() {
     const d = await r.json();
     if (d.ok) {
       document.getElementById('dotEl').className = 'dot online';
-      document.getElementById('statusTxt').textContent = 'Hazır';
+      document.getElementById('statusTxt').textContent =
+        d.cascade_size ? `${d.cascade_size} model` : 'Hazır';
     } else throw new Error();
   } catch {
     document.getElementById('dotEl').className = 'dot error';
@@ -1117,7 +1118,17 @@ async function startSolving() {
     setStep(4, 'done', 'Hazır');
 
     // Göster
-    document.getElementById('rQuestion').textContent = question;
+    // ── Okunan soru — markdown + LaTeX render
+    const rQEl = document.getElementById('rQuestion');
+    rQEl.textContent = question; // önce textContent ile HTML injection'ı engelle
+    renderMathInElement(rQEl, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true  },
+        { left: '$',  right: '$',  display: false },
+      ],
+      throwOnError: false
+    });
+
     const pill = document.getElementById('typePill');
     pill.textContent = cls.isMath ? '🔢 Matematik' : '📚 Genel';
     pill.className   = 'type-pill ' + (cls.isMath ? 'math' : 'general');
