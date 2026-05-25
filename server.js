@@ -53,6 +53,11 @@ const MISTRAL_RANKED = [
   'open-mistral-7b',       // Temel model
 ];
 
+// Çözüm için kullanılacak minimum güçlü model eşiği
+//   'high' tier: Groq'ta ilk 4 (70B sınıfı), Mistral'de ilk 2, OpenRouter yok
+const GROQ_HIGH_CUTOFF    = 4;   // llama-3.3-70b / deepseek-r1 / qwen-32b / mixtral-8x7b
+const MISTRAL_HIGH_CUTOFF = 2;   // mistral-large + mistral-small
+
 // OpenRouter ücretsiz modeller — sunucu başlarken çekilir
 let orFreeModels = []; // [{ id, name, context }]
 
@@ -88,12 +93,22 @@ async function initOpenRouterModels() {
   }
 }
 
-// Tam kaskad listesini döndür (her çağrıda güncel)
-function buildCascade() {
+// Kaskad listesini döndür
+//   tier = 'all'  → tüm modeller (sınıflandırma, hafif görevler)
+//   tier = 'high' → sadece güçlü modeller (çözüm, açıklama)
+function buildCascade(tier = 'all') {
   const list = [];
-  if (GROQ_KEY)       GROQ_RANKED.forEach(id => list.push({ provider: 'groq',       id }));
-  if (MISTRAL_KEY)    MISTRAL_RANKED.forEach(id => list.push({ provider: 'mistral',  id }));
-  if (OPENROUTER_KEY) orFreeModels.forEach(m  => list.push({ provider: 'openrouter', id: m.id }));
+  if (GROQ_KEY) {
+    const models = tier === 'high' ? GROQ_RANKED.slice(0, GROQ_HIGH_CUTOFF) : GROQ_RANKED;
+    models.forEach(id => list.push({ provider: 'groq', id }));
+  }
+  if (MISTRAL_KEY) {
+    const models = tier === 'high' ? MISTRAL_RANKED.slice(0, MISTRAL_HIGH_CUTOFF) : MISTRAL_RANKED;
+    models.forEach(id => list.push({ provider: 'mistral', id }));
+  }
+  if (OPENROUTER_KEY && tier !== 'high') {
+    orFreeModels.forEach(m => list.push({ provider: 'openrouter', id: m.id }));
+  }
   return list;
 }
 
@@ -189,8 +204,8 @@ const LATEX_RULE =
   'Matematiksel ifadeler için MUTLAKA $...$ (satır içi) veya $$...$$ (blok/display) kullan. ' +
   '\\(...\\) veya \\[...\\] formatını ASLA kullanma.';
 
-async function askWithFallback(messages) {
-  const cascade = buildCascade();
+async function askWithFallback(messages, tier = 'all') {
+  const cascade = buildCascade(tier);
   if (cascade.length === 0) throw new Error('Hiçbir AI sağlayıcısı yapılandırılmamış.');
 
   for (const { provider, id } of cascade) {
@@ -244,13 +259,30 @@ app.post('/api/read-image', wrap(async (req, res) => {
 // Soru sınıflandırma
 app.post('/api/classify', wrap(async (req, res) => {
   const { question } = req.body;
+
+  const system =
+    "Sen bir JSON API'sın. Yalnızca ham JSON nesnesi döndür. " +
+    'Markdown, kod bloğu (```), açıklama veya başka HİÇBİR şey yazma.';
+
   const prompt =
-    `Aşağıdaki soruyu analiz et ve YALNIZCA geçerli JSON döndür (markdown ya da kod bloğu kullanma).\n` +
-    `Soru: "${question}"\n` +
-    `{"isMath":true,"wolframQuery":"ingilizce wolfram sorgusu veya boş string","type":"algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|biology|history|literature|general"}`;
-  const raw       = await askWithFallback([{ role: 'user', content: prompt }]);
-  const cleanJson = raw.replace(/```json|```/g, '').trim();
-  res.json({ ok: true, ...JSON.parse(cleanJson) });
+    `Aşağıdaki soruyu analiz et ve SADECE şu şemaya uygun bir JSON nesnesi döndür:\n` +
+    `{"isMath":true,"wolframQuery":"ingilizce wolfram sorgusu veya boş string","type":"algebra|calculus|geometry|trigonometry|statistics|physics|chemistry|biology|history|literature|general"}\n\n` +
+    `Soru: "${question}"`;
+
+  const raw = await askWithFallback([
+    { role: 'system', content: system },
+    { role: 'user',   content: prompt },
+  ]);
+
+  // Modelin eklediği açıklama/markdown ne olursa olsun { } bloğunu yakala
+  const match = raw.match(/\{[\s\S]*?\}/);
+  if (!match) {
+    console.error('[classify] Geçersiz model yanıtı:', raw.slice(0, 200));
+    throw new Error('Model geçerli JSON döndürmedi.');
+  }
+
+  const parsed = JSON.parse(match[0]);
+  res.json({ ok: true, ...parsed });
 }));
 
 // Çözüm
@@ -263,7 +295,7 @@ app.post('/api/solve', wrap(async (req, res) => {
   const answer = await askWithFallback([
     { role: 'system', content: system },
     { role: 'user',   content: user },
-  ]);
+  ], 'high');
   res.json({ ok: true, answer });
 }));
 
@@ -274,7 +306,7 @@ app.post('/api/explain', wrap(async (req, res) => {
   const explanation = await askWithFallback([
     { role: 'system', content: system },
     { role: 'user',   content: `Soru: ${question}\nCevap: ${answer}\n\nBu çözümü bana kısaca anlatır mısın?` },
-  ]);
+  ], 'high');
   res.json({ ok: true, explanation });
 }));
 
